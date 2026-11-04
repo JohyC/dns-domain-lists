@@ -1,0 +1,44 @@
+name: Update Domain Lists
+
+on:
+  schedule:
+    # 每天 UTC 18:00（北京时间次日 02:00）运行
+    - cron: '0 18 * * *'
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 允许 Action 推送提交
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch and process ChinaList
+        run: |
+          # 从 felixonmars/dnsmasq-china-list 拉取，提取纯域名
+          curl -4fsSkL \
+            'https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/accelerated-domains.china.conf' \
+            | sed -n 's|^server=/\([^/]*\)/.*|\1|p' \
+            | sort -u > chinalist.txt
+
+      - name: Fetch and process GFWList
+        run: |
+          # 从 gfwlist/gfwlist 拉取 Base64 编码列表，解码并提取域名
+          curl -4fsSkL \
+            'https://raw.githubusercontent.com/gfwlist/gfwlist/master/gfwlist.txt' \
+            | base64 -d \
+            | grep -E '^\|\|' \
+            | sed 's/^||//; s/\^.*$//' \
+            | sort -u > gfwlist.txt
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add chinalist.txt gfwlist.txt
+          # 只有文件有变化时才提交，避免空提交
+          git diff --staged --quiet || git commit -m "chore: auto-update domain lists $(date -u +%Y-%m-%d)"
+          git push
